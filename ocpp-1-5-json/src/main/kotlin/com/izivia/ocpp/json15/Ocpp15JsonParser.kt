@@ -24,7 +24,7 @@ class Ocpp15JsonParser(
         forcedFieldTypes = forcedFieldTypes,
         ignoredValidationCodes = ignoredValidationCodes,
         ignoredNullRestrictions = ignoredNullRestrictions,
-        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4).takeIf { enableValidation }
+        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4, SCHEMA_FOLDER).takeIf { enableValidation }
     ) {
 
     override fun getRequestPayloadClass(action: String, errorHandler: (e: Exception) -> Throwable): Class<out Any> =
@@ -64,5 +64,9 @@ class Ocpp15JsonParser(
             ?.let {
                 errorsHandler(it)
             }
+    }
+
+    private companion object {
+        const val SCHEMA_FOLDER = "ocpp15"
     }
 }
