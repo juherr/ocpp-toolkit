@@ -24,10 +24,7 @@ class Ocpp12JsonParser(
         forcedFieldTypes = forcedFieldTypes,
         ignoredValidationCodes = ignoredValidationCodes,
         ignoredNullRestrictions = ignoredNullRestrictions,
-        // OcppJsonValidator resolves schemas by name off the classpath, where 1.5, 1.6 and 2.0
-        // already ship colliding names, so the 1.2 schemas sit in their own resource folder.
-        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4, SCHEMA_FOLDER)
-            .takeIf { enableValidation }
+        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4, SCHEMA_FOLDER).takeIf { enableValidation }
     ) {
 
     override fun getRequestPayloadClass(action: String, errorHandler: (e: Exception) -> Throwable): Class<out Any> =

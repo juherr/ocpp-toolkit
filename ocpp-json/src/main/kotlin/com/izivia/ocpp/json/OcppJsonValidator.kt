@@ -12,14 +12,18 @@ import java.util.Locale
 /**
  * Loads and caches the JSON schemas of a single OCPP version.
  *
- * Schemas are resolved as classpath resources by action name. Since every version module ships its
- * own schemas under the same names, [schemaFolder] lets a module namespace them; the default keeps
- * them at the resources root.
+ * Schemas are resolved as classpath resources by action name under [schemaFolder]. Every version
+ * module ships schemas under the same action names, and the classpath returns the first match when
+ * several versions are present, so each module must keep its schemas in a folder of its own.
  */
-class OcppJsonValidator @JvmOverloads constructor(
+class OcppJsonValidator(
     private val specVersion: SpecVersion.VersionFlag,
-    private val schemaFolder: String = ""
+    private val schemaFolder: String
 ) {
+    init {
+        require(schemaFolder.isNotBlank()) { "schemaFolder must name the resource folder holding the schemas" }
+    }
+
     private val jsonSchemas = mutableMapOf<String, JsonSchema>()
 
     // Since json-schema-validator 1.5.x validation messages are localized using the
@@ -29,9 +33,11 @@ class OcppJsonValidator @JvmOverloads constructor(
         SchemaValidatorsConfig.builder().locale(Locale.ENGLISH).build()
 
     private fun getJsonSchema(action: String): JsonSchema {
-        val file = if (schemaFolder.isEmpty()) "$action.json" else "$schemaFolder/$action.json"
+        val file = "$schemaFolder/$action.json"
         val factory: JsonSchemaFactory = JsonSchemaFactory.getInstance(specVersion)
-        val input: InputStream? = Thread.currentThread().contextClassLoader.getResourceAsStream(file)
+        val input: InputStream = checkNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream(file)) {
+            "Schema $file not found on the classpath"
+        }
         return factory.getSchema(input, config)
     }
 
