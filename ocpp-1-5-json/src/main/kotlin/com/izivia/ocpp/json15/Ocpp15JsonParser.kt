@@ -61,7 +61,8 @@ class Ocpp15JsonParser(
                     messageId = jsonMessage.msgId
                 )
             },
-            payload = jsonMessage.payload
+            payload = jsonMessage.payload,
+            messageId = jsonMessage.msgId
         )
             ?.let {
                 errorsHandler(it)

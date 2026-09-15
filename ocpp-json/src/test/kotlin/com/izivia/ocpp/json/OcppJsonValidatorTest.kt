@@ -25,7 +25,7 @@ class OcppJsonValidatorTest {
         val validator = OcppJsonValidator(SpecVersion.VersionFlag.V4, OcppSchemaFolder.OCPP_1_6)
 
         expectThrows<SchemaNotFoundException> {
-            validator.isValidObject("Authorize", JsonNodeFactory.instance.objectNode())
+            validator.isValidObject("Authorize", JsonNodeFactory.instance.objectNode(), "messageId")
         }
             .message.isNotNull().contains("ocpp16/Authorize.json")
     }
@@ -35,6 +35,8 @@ class OcppJsonValidatorTest {
         // OcppJsonParser turns every failure into a CALL_ERROR: the schema name has to survive that.
         expectThat(SchemalessParser.parseAnyFromString("""[2,"messageId","Heartbeat",{}]"""))
             .and {
+                // OCPP-J: a CALL_ERROR echoes the MessageId of the CALL it answers.
+                get { msgId }.isEqualTo("messageId")
                 get { errorCode }.isEqualTo(MessageErrorCode.INTERNAL_ERROR)
                 get { payload }.isA<Fault>().get { errorDetails }
                     .contains(ErrorDetail(code = "schema", detail = "ocpp16/Heartbeat.json"))
@@ -57,7 +59,8 @@ class OcppJsonValidatorTest {
             jsonMessage: JsonMessage<JsonNode>,
             errorsHandler: (errors: List<ValidationMessage>) -> Unit
         ) {
-            ocppJsonValidator?.isValidObject(jsonMessage.action!!, jsonMessage.payload)?.let(errorsHandler)
+            ocppJsonValidator?.isValidObject(jsonMessage.action!!, jsonMessage.payload, jsonMessage.msgId)
+                ?.let(errorsHandler)
         }
     }
 }

@@ -30,20 +30,22 @@ class OcppJsonValidator(
 
     private val factory: JsonSchemaFactory = JsonSchemaFactory.getInstance(specVersion)
 
-    private fun getJsonSchema(action: String): JsonSchema {
+    private fun getJsonSchema(action: String, messageId: String?): JsonSchema {
         val file = "${schemaFolder.path}/$action.json"
         val input = Thread.currentThread().contextClassLoader.getResourceAsStream(file)
-            ?: throw SchemaNotFoundException(file)
+            ?: throw SchemaNotFoundException(file, messageId)
         return input.use { factory.getSchema(it, config) }
     }
 
     /**
      * Serialize the object with jackson and verify that the format is conformed to the
      * json schema
+     *
+     * @param messageId id of the message being validated, echoed in the call error if the schema is missing
      */
-    fun isValidObject(action: String, payload: JsonNode): List<ValidationMessage> =
+    fun isValidObject(action: String, payload: JsonNode, messageId: String?): List<ValidationMessage> =
         // Info :  loading JsonSchema is not thread safe. Can affect performance during the first instanciation
-        (jsonSchemas[action] ?: getJsonSchema(action).also { jsonSchemas[action] = it })
+        (jsonSchemas[action] ?: getJsonSchema(action, messageId).also { jsonSchemas[action] = it })
             .validate(payload)
             .toList()
 }
@@ -52,9 +54,10 @@ class OcppJsonValidator(
  * Raised when a schema is missing from the classpath. Extends [OcppParserException] so that
  * [OcppJsonParser] reports the schema in the returned call error instead of a bare internal error.
  */
-class SchemaNotFoundException(schema: String) : OcppParserException(
+class SchemaNotFoundException(schema: String, override val messageId: String?) : OcppParserException(
     message = "Schema $schema not found on the classpath",
     errorCode = MessageErrorCode.INTERNAL_ERROR,
+    messageId = messageId,
     errorDetails = listOf(
         ErrorDetail(
             code = MessageErrorCode.INTERNAL_ERROR.errorCode,
