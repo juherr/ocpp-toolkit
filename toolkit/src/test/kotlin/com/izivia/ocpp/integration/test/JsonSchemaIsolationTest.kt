@@ -17,7 +17,11 @@ import com.izivia.ocpp.core20.model.authorize.AuthorizeReq as AuthorizeReq20
  * Every ocpp-*-json module ships schemas under the same action names, and OcppJsonValidator resolves
  * them off the classpath. The collision is only observable where several versions share a classpath,
  * i.e. here in toolkit. Each payload below is valid in its own version but rejected by the schema of
- * the older version that would otherwise shadow it.
+ * the older version that would shadow it if the schemas sat at the resources root.
+ *
+ * Only the 2.0 and 1.6 cases reproduce the original collision (#111): 1.5 came first in classpath
+ * order anyway, and 1.2 was namespaced from the start. Those two are guards against the classpath
+ * order changing, and each case needs its module on the toolkit test classpath to mean anything.
  */
 class JsonSchemaIsolationTest {
 
