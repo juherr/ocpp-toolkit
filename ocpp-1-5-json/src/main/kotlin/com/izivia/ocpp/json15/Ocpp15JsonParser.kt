@@ -8,6 +8,7 @@ import com.izivia.ocpp.json.JsonMessage
 import com.izivia.ocpp.json.JsonMessageType
 import com.izivia.ocpp.json.OcppJsonParser
 import com.izivia.ocpp.json.OcppJsonValidator
+import com.izivia.ocpp.json.OcppSchemaFolder
 import com.izivia.ocpp.utils.MessageTypeException
 import com.networknt.schema.SpecVersion
 import com.networknt.schema.ValidationMessage
@@ -24,7 +25,8 @@ class Ocpp15JsonParser(
         forcedFieldTypes = forcedFieldTypes,
         ignoredValidationCodes = ignoredValidationCodes,
         ignoredNullRestrictions = ignoredNullRestrictions,
-        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4, SCHEMA_FOLDER).takeIf { enableValidation }
+        ocppJsonValidator = OcppJsonValidator(SpecVersion.VersionFlag.V4, OcppSchemaFolder.OCPP_1_5)
+            .takeIf { enableValidation }
     ) {
 
     override fun getRequestPayloadClass(action: String, errorHandler: (e: Exception) -> Throwable): Class<out Any> =
@@ -64,9 +66,5 @@ class Ocpp15JsonParser(
             ?.let {
                 errorsHandler(it)
             }
-    }
-
-    private companion object {
-        const val SCHEMA_FOLDER = "ocpp15"
     }
 }

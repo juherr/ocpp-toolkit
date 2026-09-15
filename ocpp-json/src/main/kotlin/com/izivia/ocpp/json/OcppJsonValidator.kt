@@ -1,29 +1,25 @@
 package com.izivia.ocpp.json
 
 import com.fasterxml.jackson.databind.JsonNode
+import com.izivia.ocpp.utils.ErrorDetail
+import com.izivia.ocpp.utils.MessageErrorCode
+import com.izivia.ocpp.utils.OcppParserException
 import com.networknt.schema.JsonSchema
 import com.networknt.schema.JsonSchemaFactory
 import com.networknt.schema.SchemaValidatorsConfig
 import com.networknt.schema.SpecVersion
 import com.networknt.schema.ValidationMessage
-import java.io.InputStream
 import java.util.Locale
 
 /**
  * Loads and caches the JSON schemas of a single OCPP version.
  *
- * Schemas are resolved as classpath resources by action name under [schemaFolder]. Every version
- * module ships schemas under the same action names, and the classpath returns the first match when
- * several versions are present, so each module must keep its schemas in a folder of its own.
+ * Schemas are resolved as classpath resources by action name under [schemaFolder].
  */
 class OcppJsonValidator(
-    private val specVersion: SpecVersion.VersionFlag,
-    private val schemaFolder: String
+    specVersion: SpecVersion.VersionFlag,
+    private val schemaFolder: OcppSchemaFolder
 ) {
-    init {
-        require(schemaFolder.isNotBlank()) { "schemaFolder must name the resource folder holding the schemas" }
-    }
-
     private val jsonSchemas = mutableMapOf<String, JsonSchema>()
 
     // Since json-schema-validator 1.5.x validation messages are localized using the
@@ -32,13 +28,13 @@ class OcppJsonValidator(
     private val config: SchemaValidatorsConfig =
         SchemaValidatorsConfig.builder().locale(Locale.ENGLISH).build()
 
+    private val factory: JsonSchemaFactory = JsonSchemaFactory.getInstance(specVersion)
+
     private fun getJsonSchema(action: String): JsonSchema {
-        val file = "$schemaFolder/$action.json"
-        val factory: JsonSchemaFactory = JsonSchemaFactory.getInstance(specVersion)
-        val input: InputStream = checkNotNull(Thread.currentThread().contextClassLoader.getResourceAsStream(file)) {
-            "Schema $file not found on the classpath"
-        }
-        return factory.getSchema(input, config)
+        val file = "${schemaFolder.path}/$action.json"
+        val input = Thread.currentThread().contextClassLoader.getResourceAsStream(file)
+            ?: throw SchemaNotFoundException(file)
+        return input.use { factory.getSchema(it, config) }
     }
 
     /**
@@ -51,3 +47,19 @@ class OcppJsonValidator(
             .validate(payload)
             .toList()
 }
+
+/**
+ * Raised when a schema is missing from the classpath. Extends [OcppParserException] so that
+ * [OcppJsonParser] reports the schema in the returned call error instead of a bare internal error.
+ */
+class SchemaNotFoundException(schema: String) : OcppParserException(
+    message = "Schema $schema not found on the classpath",
+    errorCode = MessageErrorCode.INTERNAL_ERROR,
+    errorDetails = listOf(
+        ErrorDetail(
+            code = MessageErrorCode.INTERNAL_ERROR.errorCode,
+            detail = MessageErrorCode.INTERNAL_ERROR.description
+        ),
+        ErrorDetail(code = "schema", detail = schema)
+    )
+)
