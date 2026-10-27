@@ -5,7 +5,12 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":operation-information"))
+    api(project(":operation-information"))
+
+    testImplementation("org.junit.jupiter:junit-jupiter-api:_")
+    testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:_")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:_")
+    testImplementation("io.strikt:strikt-core:_")
 }
 
 java {
