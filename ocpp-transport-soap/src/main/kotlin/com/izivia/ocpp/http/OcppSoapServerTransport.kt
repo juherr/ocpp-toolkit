@@ -21,6 +21,10 @@ import org.slf4j.LoggerFactory
 import java.util.*
 import kotlin.reflect.KClass
 
+/**
+ * Keeps the default no-op [ServerTransport.shutdown]: each SOAP call is a synchronous HTTP exchange
+ * owned by the HTTP server, so the transport holds nothing to drain.
+ */
 class OcppSoapServerTransport private constructor(
     private val ocppVersion: OcppVersion,
     private val ocppSoapParser: OcppSoapParser,
