@@ -9,7 +9,7 @@ coreProject()
 dependencies {
     implementation("org.http4k:http4k-core:_")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:_")
-    implementation(project(":utils"))
+    api(project(":utils"))
     implementation(project(":ocpp-wamp"))
     implementation(project(":ocpp-transport"))
     implementation(project(":operation-information"))
