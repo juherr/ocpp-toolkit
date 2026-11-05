@@ -1,6 +1,7 @@
 package com.izivia.ocpp.integration.model
 
 import com.izivia.ocpp.transport.OcppVersion
+import com.izivia.ocpp.utils.OcppErrorListener
 import com.izivia.ocpp.wamp.server.impl.EventsListeners
 import com.izivia.ocpp.wamp.server.impl.OcppWampServerSettings
 import java.util.*
@@ -36,5 +37,7 @@ data class ServerSetting(
     val transportType: TransportEnum,
     val newMessageId: () -> String = { UUID.randomUUID().toString() },
     val wampSettings: OcppWampServerSettings = OcppWampServerSettings(),
-    var listeners: EventsListeners = EventsListeners()
+    var listeners: EventsListeners = EventsListeners(),
+    /** Observes the failures while processing OCPP messages, whatever the [transportType]. */
+    val errorListener: OcppErrorListener? = null
 )
