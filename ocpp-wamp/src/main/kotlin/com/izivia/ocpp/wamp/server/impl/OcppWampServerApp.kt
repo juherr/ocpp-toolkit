@@ -3,6 +3,10 @@ package com.izivia.ocpp.wamp.server.impl
 import com.izivia.ocpp.CSOcppId
 import com.izivia.ocpp.OcppVersion
 import com.izivia.ocpp.utils.MessageErrorCode
+import com.izivia.ocpp.utils.OcppErrorCategory
+import com.izivia.ocpp.utils.OcppErrorEvent
+import com.izivia.ocpp.utils.OcppErrorListener
+import com.izivia.ocpp.utils.notifySafely
 import com.izivia.ocpp.wamp.core.WampCallManager
 import com.izivia.ocpp.wamp.messages.WampMessage
 import com.izivia.ocpp.wamp.messages.WampMessageMeta
@@ -17,11 +21,13 @@ import org.http4k.websocket.Websocket
 import org.http4k.websocket.WsMessage
 import org.http4k.websocket.WsResponse
 import org.slf4j.LoggerFactory
+import java.io.IOException
 import java.net.SocketException
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentMap
 import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -35,7 +41,8 @@ class OcppWampServerApp(
     private val listeners: EventsListeners = EventsListeners(),
     private val ocppWsEndpoint: OcppWsEndpoint,
     val settings: OcppWampServerSettings,
-    private val clock: Clock = Clock.System
+    private val clock: Clock = Clock.System,
+    private val errorListener: OcppErrorListener? = null
 ) {
     companion object {
         private val logger = LoggerFactory.getLogger("com.izivia.ocpp.wamp.server")
@@ -108,6 +115,12 @@ class OcppWampServerApp(
                 // not sure yet if we should consider any error as a close, so we handle only connection resets
                 if (e.isConnectionReset()) {
                     handleWebSocketClosed(logContext, chargingStationConnection, e)
+                } else if (e !is IOException && e !== chargingStationConnection.reportedFailure) {
+                    // An IOException is the network failing, which onWsCloseHandler already reports. The WebSocket
+                    // callback routes here any other exception escaping ws.onMessage, so nothing reports those there.
+                    errorListener?.notifySafely(
+                        chargingStationConnection.errorEvent(OcppErrorCategory.TRANSPORT_ERROR, cause = e)
+                    )
                 }
             }
 
@@ -132,6 +145,12 @@ class OcppWampServerApp(
                 val msg = WampMessage.parse(msgString)
                 if (msg == null) {
                     logger.error("$logContext parsing Wamp message returns null - `$msgString`")
+                    errorListener?.notifySafely(
+                        chargingStationConnection.errorEvent(
+                            OcppErrorCategory.PROTOCOL_ERROR,
+                            errorCode = MessageErrorCode.INTERNAL_ERROR
+                        )
+                    )
                     ws.send(
                         WsMessage(
                             WampMessage.CallError(
@@ -163,40 +182,61 @@ class OcppWampServerApp(
                             }
 
                             val startCall = clock.now()
-                            callsExecutor.execute {
-                                val callQueueLatency = clock.now() - startCall
-                                logger.info(
-                                    "$logContext [IN][CALL][REQ] -> ${it.bodyString()} -- " +
-                                        "[latency=${callQueueLatency.inWholeMilliseconds}ms]"
-                                )
-                                val resp = handler.asSequence()
-                                    // use sequence to avoid greedy mapping, to find the first handler with non null result
-                                    .map {
-                                        it.onAction(
-                                            WampMessageMeta(
-                                                ocppVersion,
-                                                chargingStationOcppId,
-                                                request.headers
-                                            ),
-                                            wampMessage
-                                        )
-                                    }
-                                    .filterNotNull()
-                                    .firstOrNull()
-                                    ?: WampMessage.CallError(
-                                        wampMessage.msgId,
-                                        MessageErrorCode.INTERNAL_ERROR,
-                                        "No action handler found",
-                                        """{"message":"$wampMessage"}"""
-                                    ).also { logger.warn("$logContext no action handler found for $wampMessage") }
+                            chargingStationConnection.submitCall(wampMessage) {
+                                var failureCategory = OcppErrorCategory.HANDLER_ERROR
+                                try {
+                                    val callQueueLatency = clock.now() - startCall
+                                    logger.info(
+                                        "$logContext [IN][CALL][REQ] -> ${it.bodyString()} -- " +
+                                            "[latency=${callQueueLatency.inWholeMilliseconds}ms]"
+                                    )
+                                    val resp = handler.asSequence()
+                                        // use sequence to avoid greedy mapping,
+                                        // to find the first handler with non null result
+                                        .map {
+                                            it.onAction(
+                                                WampMessageMeta(
+                                                    ocppVersion,
+                                                    chargingStationOcppId,
+                                                    request.headers
+                                                ),
+                                                wampMessage
+                                            )
+                                        }
+                                        .filterNotNull()
+                                        .firstOrNull()
+                                        ?: WampMessage.CallError(
+                                            wampMessage.msgId,
+                                            MessageErrorCode.INTERNAL_ERROR,
+                                            "No action handler found",
+                                            """{"message":"$wampMessage"}"""
+                                        ).also {
+                                            logger.warn("$logContext no action handler found for $wampMessage")
+                                            errorListener?.notifySafely(
+                                                chargingStationConnection.errorEvent(
+                                                    OcppErrorCategory.UNHANDLED_ACTION,
+                                                    wampMessage,
+                                                    MessageErrorCode.INTERNAL_ERROR
+                                                )
+                                            )
+                                        }
+                                    failureCategory = OcppErrorCategory.PROTOCOL_ERROR
+                                    val respJson = resp.toJson()
+                                    failureCategory = OcppErrorCategory.TRANSPORT_ERROR
 
-                                val duration = clock.now() - startCall
-                                logger.info(
-                                    "$logContext [IN][CALL][RESP] <- ${resp.toJson()} -- " +
-                                        "[duration=${duration.inWholeMilliseconds}ms]" +
-                                        "[latency=${callQueueLatency.inWholeMilliseconds}ms]"
-                                )
-                                ws.send(WsMessage(resp.toJson()))
+                                    val duration = clock.now() - startCall
+                                    logger.info(
+                                        "$logContext [IN][CALL][RESP] <- $respJson -- " +
+                                            "[duration=${duration.inWholeMilliseconds}ms]" +
+                                            "[latency=${callQueueLatency.inWholeMilliseconds}ms]"
+                                    )
+                                    ws.send(WsMessage(respJson))
+                                } catch (e: Exception) {
+                                    errorListener?.notifySafely(
+                                        chargingStationConnection.errorEvent(failureCategory, wampMessage, cause = e)
+                                    )
+                                    throw e
+                                }
                             }
                         }
 
@@ -208,6 +248,20 @@ class OcppWampServerApp(
             }
         } catch (e: Exception) {
             logger.error("Error during new connection with $request: $e", e)
+            throw e
+        }
+    }
+
+    private fun ChargingStationConnection.submitCall(message: WampMessage, call: Runnable) {
+        try {
+            callsExecutor.execute(call)
+        } catch (e: Exception) {
+            // Only a rejection, or a failed call on an executor running calls on the message thread, ends up here.
+            // The call has already reported its own failure, and ws.onError receives both next.
+            if (e is RejectedExecutionException) {
+                errorListener?.notifySafely(errorEvent(OcppErrorCategory.TRANSPORT_ERROR, message, cause = e))
+            }
+            reportedFailure = e
             throw e
         }
     }
@@ -316,6 +370,16 @@ class OcppWampServerApp(
     ) {
         val callManager: WampCallManager =
             WampCallManager(logger, { m: String -> ws.send(WsMessage(m)) }, timeoutInMs, shutdown)
+
+        // only set and read on the message thread: see submitCall
+        var reportedFailure: Throwable? = null
+
+        fun errorEvent(
+            category: OcppErrorCategory,
+            message: WampMessage? = null,
+            errorCode: MessageErrorCode? = null,
+            cause: Throwable? = null
+        ) = OcppErrorEvent(category, ocppId, ocppVersion.subprotocol, message?.action, message?.msgId, errorCode, cause)
 
         fun sendBlocking(message: WampMessage, startCall: Instant, timeoutInMs: Long? = null): WampMessage =
             callManager.callBlocking("[$ocppId] [$wsConnectionId]", startCall, message, timeoutInMs)
